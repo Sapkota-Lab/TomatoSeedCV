@@ -5,48 +5,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-
-def detect_ruler(image_bgr: np.ndarray, ruler_length_mm: float = 150.0):
-    """
-    Detect the ruler in the image and calculate mm_per_pixel.
-    
-    TODO: Adjust ruler_length_mm based on your actual ruler (e.g., 150mm for a 15cm ruler).
-    Uses edge detection and contour analysis to find the longest straight object (the ruler).
-    
-    Args:
-        image_bgr: Input image in BGR format.
-        ruler_length_mm: Known length of the ruler in millimeters.
-    
-    Returns:
-        mm_per_pixel: Calibration factor (mm per pixel), or None if ruler not detected.
-    """
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    
-    # Edge detection to find the ruler (high contrast object)
-    edges = cv2.Canny(gray, 50, 150)
-    
-    # Find contours
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    if not contours:
-        print("Warning: No ruler detected in image. Please provide --mm-per-pixel manually.")
-        return None
-    
-    # Find the longest contour (likely the ruler)
-    longest_contour = max(contours, key=cv2.contourArea)
-    
-    # Get bounding rect and measure its longest dimension
-    x, y, w, h = cv2.boundingRect(longest_contour)
-    ruler_pixel_length = max(w, h)
-    
-    if ruler_pixel_length < 50:
-        print("Warning: Detected ruler is very short. Calibration may be inaccurate.")
-        return None
-    
-    mm_per_pixel = ruler_length_mm / ruler_pixel_length
-    print(f"Ruler detected: {ruler_pixel_length:.1f}px = {ruler_length_mm}mm → {mm_per_pixel:.4f} mm/pixel")
-    
-    return mm_per_pixel
+from detect_ruler import detect_ruler_presence, extract_ruler_calibration
+from train_model import predict_seed_mask
 
 
 def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
@@ -185,28 +145,27 @@ def main():
     """
     Main pipeline to segment seeds, measure their sizes, and generate outputs.
     
-    Automatically detects the ruler in the image for calibration unless --mm-per-pixel is provided.
-    
     TODO: 
-    - Set --ruler-length-mm to match your actual ruler (default 150mm for 15cm ruler)
     - Run with test image to verify brown seed segmentation works
+    - Calibrate mm_per_pixel using a known reference object or ruler
+    - Adjust --mm-per-pixel argument once calibration is complete
     """
     parser = argparse.ArgumentParser(description="Detect strawberry seeds and estimate sizes.")
     parser.add_argument("--image", required=True, help="Path to an input image (e.g., Images/img006.jpg)")
     parser.add_argument(
+        "--has-ruler",
+        action="store_true",
+        default=False,
+        help="Set this flag if the image contains a ruler for automatic calibration.",
+    )
+    parser.add_argument(
         "--mm-per-pixel",
         type=float,
         default=None,
-        help="Manual calibration value (mm per pixel). If not provided, ruler detection is attempted.",
-    )
-    parser.add_argument(
-        "--ruler-length-mm",
-        type=float,
-        default=150.0,
-        help="Known length of the ruler in your images (default: 150mm for a 15cm ruler).",
+        help="Manual calibration value. If --has-ruler is set, this will be auto-calibrated if possible.",
     )
     parser.add_argument("--min-area-px", type=float, default=20.0, help="Area threshold to discard tiny blobs.")
-    parser.add_argument("--output-dir", default="outputs", help="Directory to store mask and overlay images.")
+    parser.add_argument("--output-dir", default="../outputs", help="Directory to store mask and overlay images.")
     args = parser.parse_args()
 
     image_path = Path(args.image)
@@ -217,10 +176,12 @@ def main():
     if image is None:
         raise FileNotFoundError(f"Could not read image at {image_path}")
 
-    # Use provided mm_per_pixel or attempt ruler detection
+    # Try to auto-calibrate if ruler is present
     mm_per_pixel = args.mm_per_pixel
-    if mm_per_pixel is None:
-        mm_per_pixel = detect_ruler(image, ruler_length_mm=args.ruler_length_mm)
+    if args.has_ruler and mm_per_pixel is None:
+        mm_per_pixel = extract_ruler_calibration(image, has_ruler=True)
+        if mm_per_pixel:
+            print(f"Auto-calibrated: {mm_per_pixel:.6f} mm/pixel")
 
     mask, seeds = segment_seeds(image, min_area_px=args.min_area_px)
     summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
