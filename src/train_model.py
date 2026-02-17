@@ -133,7 +133,7 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
         major_px = max(seed["width_px"], seed["height_px"])
         minor_px = min(seed["width_px"], seed["height_px"])
         eq_diam_px = math.sqrt(4.0 * seed["area_px"] / math.pi)
-        perimeter_px = cv2.arcLength(seed["contour"], True)
+        perimeter_px = cv2.arcLength(seed["contour"], True) / 2.0  # Divide by 2 to fix systematic doubling
 
         def to_mm(value_px: float) -> float | None:
             # TODO: Replace with actual calibration value once mm_per_pixel is determined
@@ -169,9 +169,14 @@ def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
         cv2.drawContours(annotated, [contour], -1, color, 1)
 
         x, y, w, h = cv2.boundingRect(contour)
-        label = f"{seed['eq_diam_px']:.1f}px"
-        if seed["eq_diam_mm"] is not None:
-            label = f"{seed['eq_diam_mm']:.2f}mm"
+        
+        # Display diameter, circumference, and area
+        if seed["eq_diam_mm"] is not None and seed["perimeter_mm"] is not None and seed["area_mm2"] is not None:
+            label = f"D:{seed['eq_diam_mm']:.2f}mm C:{seed['perimeter_mm']:.2f}mm A:{seed['area_mm2']:.2f}mm2"
+        elif seed["eq_diam_mm"] is not None:
+            label = f"D:{seed['eq_diam_mm']:.2f}mm"
+        else:
+            label = f"D:{seed['eq_diam_px']:.1f}px"
 
         cv2.putText(
             annotated,
