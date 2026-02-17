@@ -61,32 +61,38 @@ def predict_seed_mask(model, image: np.ndarray) -> np.ndarray:
 
 def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
     """
-    Segment seeds from background using Gaussian blur, thresholding, and contour detection.
+    Segment seeds from white background using Gaussian blur and binary thresholding.
     
-    Pipeline (in order):
-    1. Gaussian Blur: Smooth out texture and blend dark spots inside seeds
-    2. Thresholding: Convert blurred image to binary mask (black and white)
-    3. Find External Contours: Only look at outermost edges (ignores holes)
-    4. Filter by Area: Only measure seeds large enough to be real objects
+    This improved pipeline:
+    1. Apply Gaussian blur to smooth texture and blend interior noise
+    2. Convert to binary mask using Otsu's thresholding
+    3. Find external contours only (ignores holes inside seeds)
+    4. Filter contours by area to remove salt noise
+    
+    Args:
+        image_bgr: Input image in BGR format
+        min_area_px: Minimum area threshold in pixels to keep a seed
+        
+    Returns:
+        Tuple of (binary_mask, list of seed dictionaries with properties)
     """
-    # Step 1: Convert to grayscale and apply Gaussian Blur
+    # Step 1: Convert to grayscale
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
-    # Step 2: Thresholding to create binary mask
-    # Using Otsu's threshold for automatic threshold selection
-    _, threshold_mask = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Step 2: Apply Gaussian blur to smooth texture and blend dark spots inside seeds
+    # Kernel size (11, 11) and sigma of 2 work well for smoothing seed interiors
+    blurred = cv2.GaussianBlur(gray, (11, 11), 2)
     
-    # Step 3: Find external contours only (ignores holes inside seeds)
-    # findContours needs white foreground, so use threshold_mask directly
-    contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Step 3: Apply binary thresholding (Otsu's method for automatic threshold selection)
+    # This creates a clean binary mask of seeds vs. background
+    _, mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     
-    # Invert for display (seeds appear black, background white)
-    mask = cv2.bitwise_not(threshold_mask)
+    # Step 4: Find external contours only (RETR_EXTERNAL ignores any holes or noise inside seeds)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Step 4: Filter by area and extract seed properties
     seeds = []
     for contour in contours:
+        # Step 5: Filter by area - only keep contours larger than min_area_px
         area_px = cv2.contourArea(contour)
         
         # Only keep seeds larger than the minimum area threshold
