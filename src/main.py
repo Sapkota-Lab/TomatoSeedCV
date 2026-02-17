@@ -27,7 +27,7 @@ def main():
     parser.add_argument(
         "--mm-per-pixel",
         type=float,
-        default=0.047619,
+        default=0.005341,
         help="Manual calibration value. If --has-ruler is set, this will be auto-calibrated if possible.",
     )
     parser.add_argument("--min-area-px", type=float, default=20.0, help="Area threshold to discard tiny blobs.")

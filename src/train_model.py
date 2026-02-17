@@ -80,15 +80,14 @@ def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     
     # Step 2: Apply Gaussian blur to smooth texture and blend dark spots inside seeds
-    # Kernel size (11, 11) and sigma of 2 work well for smoothing seed interiors
-    blurred = cv2.GaussianBlur(gray, (11, 11), 2)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
     # Step 3: Apply binary thresholding (Otsu's method for automatic threshold selection)
-    # This creates a clean binary mask of seeds vs. background
-    _, mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # Regular BINARY threshold: foreground (seeds) = white (255), background = black (0)
+    _, threshold_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # Step 4: Find external contours only (RETR_EXTERNAL ignores any holes or noise inside seeds)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Step 4: Find external contours on the white seeds
+    contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     seeds = []
     for contour in contours:
@@ -116,7 +115,10 @@ def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
         )
 
     seeds.sort(key=lambda s: s["area_px"], reverse=True)
-    return mask, seeds
+    
+    # Return inverted mask (black seeds on white background) for display
+    display_mask = cv2.bitwise_not(threshold_mask)
+    return display_mask, seeds
 
 
 def summarize_seeds(seeds, mm_per_pixel: float | None):
