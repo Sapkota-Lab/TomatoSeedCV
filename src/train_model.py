@@ -61,28 +61,35 @@ def predict_seed_mask(model, image: np.ndarray) -> np.ndarray:
 
 def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
     """
-    Segment brown seeds from white background using color thresholding and morphology.
+    Segment seeds from background using Gaussian blur, thresholding, and contour detection.
     
-    TODO: Calibrate HSV thresholds for brown seeds on white background.
-    Current values are placeholders and need to be tuned based on your image.
+    Pipeline (in order):
+    1. Gaussian Blur: Smooth out texture and blend dark spots inside seeds
+    2. Thresholding: Convert blurred image to binary mask (black and white)
+    3. Find External Contours: Only look at outermost edges (ignores holes)
+    4. Filter by Area: Only measure seeds large enough to be real objects
     """
-    hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
-
-    # TODO: Adjust these thresholds for brown-ish seeds
-    # Brown hues are typically in range 10-20 (HSV H channel)
-    lower = np.array([10, 50, 50], dtype=np.uint8)
-    upper = np.array([20, 255, 200], dtype=np.uint8)
-    mask = cv2.inRange(hsv, lower, upper)
-
-    mask = cv2.medianBlur(mask, 5)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Step 1: Convert to grayscale and apply Gaussian Blur
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Step 2: Thresholding to create binary mask
+    # Using Otsu's threshold for automatic threshold selection
+    _, threshold_mask = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Step 3: Find external contours only (ignores holes inside seeds)
+    # findContours needs white foreground, so use threshold_mask directly
+    contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Invert for display (seeds appear black, background white)
+    mask = cv2.bitwise_not(threshold_mask)
+    
+    # Step 4: Filter by area and extract seed properties
     seeds = []
     for contour in contours:
         area_px = cv2.contourArea(contour)
+        
+        # Only keep seeds larger than the minimum area threshold
         if area_px < min_area_px:
             continue
 
@@ -118,6 +125,7 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
         major_px = max(seed["width_px"], seed["height_px"])
         minor_px = min(seed["width_px"], seed["height_px"])
         eq_diam_px = math.sqrt(4.0 * seed["area_px"] / math.pi)
+        perimeter_px = cv2.arcLength(seed["contour"], True)
 
         def to_mm(value_px: float) -> float | None:
             # TODO: Replace with actual calibration value once mm_per_pixel is determined
@@ -127,11 +135,13 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
             {
                 "contour": seed["contour"],
                 "area_px": seed["area_px"],
+                "perimeter_px": perimeter_px,
                 "major_px": major_px,
                 "minor_px": minor_px,
                 "eq_diam_px": eq_diam_px,
                 # TODO: These will be None until mm_per_pixel is calibrated
                 "area_mm2": seed["area_px"] * (mm_per_pixel**2) if mm_per_pixel else None,
+                "perimeter_mm": to_mm(perimeter_px),
                 "major_mm": to_mm(major_px),
                 "minor_mm": to_mm(minor_px),
                 "eq_diam_mm": to_mm(eq_diam_px),
@@ -177,6 +187,10 @@ def describe(summary):
 
     eq_diams_px = [s["eq_diam_px"] for s in summary]
     eq_diams_mm = [s["eq_diam_mm"] for s in summary if s["eq_diam_mm"] is not None]
+    perimeters_px = [s["perimeter_px"] for s in summary]
+    perimeters_mm = [s["perimeter_mm"] for s in summary if s["perimeter_mm"] is not None]
+    areas_px = [s["area_px"] for s in summary]
+    areas_mm = [s["area_mm2"] for s in summary if s["area_mm2"] is not None]
 
     def pct(values, p):
         if not values:
@@ -186,6 +200,12 @@ def describe(summary):
 
     print(f"Seeds kept: {len(summary)}")
     print(f"Equivalent diameter px | median={pct(eq_diams_px, 50):.2f}  p10={pct(eq_diams_px, 10):.2f}  p90={pct(eq_diams_px, 90):.2f}")
+    print(f"Perimeter px | median={pct(perimeters_px, 50):.2f}  p10={pct(perimeters_px, 10):.2f}  p90={pct(perimeters_px, 90):.2f}")
+    print(f"Area px^2 | median={pct(areas_px, 50):.2f}  p10={pct(areas_px, 10):.2f}  p90={pct(areas_px, 90):.2f}")
 
     if eq_diams_mm:
         print(f"Equivalent diameter mm | median={pct(eq_diams_mm, 50):.3f}  p10={pct(eq_diams_mm, 10):.3f}  p90={pct(eq_diams_mm, 90):.3f}")
+    if perimeters_mm:
+        print(f"Perimeter mm | median={pct(perimeters_mm, 50):.3f}  p10={pct(perimeters_mm, 10):.3f}  p90={pct(perimeters_mm, 90):.3f}")
+    if areas_mm:
+        print(f"Area mm^2 | median={pct(areas_mm, 50):.3f}  p10={pct(areas_mm, 10):.3f}  p90={pct(areas_mm, 90):.3f}")

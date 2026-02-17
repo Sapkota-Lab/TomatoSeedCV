@@ -27,7 +27,7 @@ def main():
     parser.add_argument(
         "--mm-per-pixel",
         type=float,
-        default=None,
+        default=0.047619,
         help="Manual calibration value. If --has-ruler is set, this will be auto-calibrated if possible.",
     )
     parser.add_argument("--min-area-px", type=float, default=20.0, help="Area threshold to discard tiny blobs.")
@@ -35,19 +35,15 @@ def main():
     args = parser.parse_args()
 
     image_path = Path(args.image)
-    output_dir = Path(args.output_dir)
+    output_dir = Path(r"C:\Users\wenxi\Desktop\Git\sapkota-lab\StrawberryCV\outputs")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     image = cv2.imread(str(image_path))
     if image is None:
         raise FileNotFoundError(f"Could not read image at {image_path}")
 
-    # Try to auto-calibrate if ruler is present
+    # Use manual calibration only; ignore the ruler entirely.
     mm_per_pixel = args.mm_per_pixel
-    if args.has_ruler and mm_per_pixel is None:
-        mm_per_pixel = extract_ruler_calibration(image, has_ruler=True)
-        if mm_per_pixel:
-            print(f"Auto-calibrated: {mm_per_pixel:.6f} mm/pixel")
 
     mask, seeds = segment_seeds(image, min_area_px=args.min_area_px)
     summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
