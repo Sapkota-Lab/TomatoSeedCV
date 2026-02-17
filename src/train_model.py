@@ -1,81 +1,8 @@
-"""
-Train a model for seed detection and measure seed properties.
-
-This module contains functions for training machine learning models
-to detect and segment strawberry seeds, as well as functions for 
-measuring seed sizes and properties.
-"""
-
 import math
-
 import cv2
 import numpy as np
 
-
-def train_seed_detection_model(training_data, training_labels):
-    """
-    Train a seed detection model using provided training data.
-    
-    Args:
-        training_data: Array of training images
-        training_labels: Array of corresponding seed masks or labels
-        
-    Returns:
-        Trained model object
-        
-    TODO: Implement ML model training (e.g., using TensorFlow, PyTorch, or sklearn)
-    """
-    pass
-
-
-def load_seed_detection_model(model_path: str):
-    """
-    Load a pre-trained seed detection model from disk.
-    
-    Args:
-        model_path: Path to the saved model file
-        
-    Returns:
-        Loaded model object
-        
-    TODO: Implement model loading logic
-    """
-    pass
-
-
-def predict_seed_mask(model, image: np.ndarray) -> np.ndarray:
-    """
-    Use a trained model to predict seed mask from an image.
-    
-    Args:
-        model: Trained seed detection model
-        image: Input image (BGR)
-        
-    Returns:
-        Binary mask of detected seeds
-        
-    TODO: Implement prediction using the trained model
-    """
-    pass
-
-
 def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
-    """
-    Segment seeds from white background using Gaussian blur and binary thresholding.
-    
-    This improved pipeline:
-    1. Apply Gaussian blur to smooth texture and blend interior noise
-    2. Convert to binary mask using Otsu's thresholding
-    3. Find external contours only (ignores holes inside seeds)
-    4. Filter contours by area to remove salt noise
-    
-    Args:
-        image_bgr: Input image in BGR format
-        min_area_px: Minimum area threshold in pixels to keep a seed
-        
-    Returns:
-        Tuple of (binary_mask, list of seed dictionaries with properties)
-    """
     # Step 1: Convert to grayscale
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     
@@ -122,12 +49,6 @@ def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
 
 
 def summarize_seeds(seeds, mm_per_pixel: float | None):
-    """
-    Compute per-seed metrics and unit conversions.
-    
-    TODO: Implement pixel-to-mm calibration.
-    Measure a reference object (e.g., a ruler) in the image and calculate mm_per_pixel.
-    """
     summary = []
     for seed in seeds:
         major_px = max(seed["width_px"], seed["height_px"])
@@ -160,7 +81,6 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
 
 
 def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
-    """Draw contours and a short size label on top of each seed."""
     annotated = image_bgr.copy()
     color = (0, 180, 255)
 
@@ -193,7 +113,6 @@ def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
 
 
 def describe(summary):
-    """Print a compact textual report."""
     if not summary:
         print("No seeds detected after filtering.")
         return
