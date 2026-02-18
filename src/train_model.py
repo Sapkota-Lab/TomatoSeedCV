@@ -13,6 +13,15 @@ def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
     # Regular BINARY threshold: foreground (seeds) = white (255), background = black (0)
     _, threshold_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
+    # Step 3.5: Apply morphological operations to remove noise
+    # Opening removes small white noise in the background
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    threshold_mask = cv2.morphologyEx(threshold_mask, cv2.MORPH_OPEN, kernel_open, iterations=2)
+    
+    # Closing fills small holes inside seeds
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    threshold_mask = cv2.morphologyEx(threshold_mask, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+    
     # Step 4: Find external contours on the white seeds
     contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     

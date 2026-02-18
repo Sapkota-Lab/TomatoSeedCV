@@ -31,11 +31,11 @@ def main():
         help="Manual calibration value. If --has-ruler is set, this will be auto-calibrated if possible.",
     )
     parser.add_argument("--min-area-px", type=float, default=20.0, help="Area threshold to discard tiny blobs.")
-    parser.add_argument("--output-dir", default="../outputs", help="Directory to store mask and overlay images.")
+    parser.add_argument("--output-dir", default="outputs", help="Directory to store mask and overlay images.")
     args = parser.parse_args()
 
     image_path = Path(args.image)
-    output_dir = Path(r"C:\Users\wenxi\Desktop\Git\sapkota-lab\StrawberryCV\outputs")
+    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     image = cv2.imread(str(image_path))
