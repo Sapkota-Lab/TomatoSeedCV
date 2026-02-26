@@ -23,7 +23,7 @@ def cv2_to_base64(image):
 
 
 app_ui = ui.page_fluid(
-    ui.panel_title("Tomato Seed Analyzer"),
+    ui.panel_title("Tomato Seed CV"),
     ui.layout_sidebar(
         ui.sidebar(
             ui.input_file(
