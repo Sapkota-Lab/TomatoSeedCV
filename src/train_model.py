@@ -23,7 +23,8 @@ def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
     threshold_mask = cv2.morphologyEx(threshold_mask, cv2.MORPH_CLOSE, kernel_close, iterations=2)
     
     # Step 4: Find external contours on the white seeds
-    contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Use CHAIN_APPROX_NONE for accurate perimeter measurement
+    contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     
     seeds = []
     for contour in contours:
@@ -63,11 +64,18 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
         major_px = max(seed["width_px"], seed["height_px"])
         minor_px = min(seed["width_px"], seed["height_px"])
         eq_diam_px = math.sqrt(4.0 * seed["area_px"] / math.pi)
-        perimeter_px = cv2.arcLength(seed["contour"], True) / 2.0  # Divide by 2 to fix systematic doubling
+        perimeter_px = cv2.arcLength(seed["contour"], True)  # Full perimeter, no artificial scaling
 
         def to_mm(value_px: float) -> float | None:
             # TODO: Replace with actual calibration value once mm_per_pixel is determined
             return value_px * mm_per_pixel if mm_per_pixel else None
+
+        # Shape indices (dimensionless)
+        aspect_ratio = major_px / minor_px if minor_px > 0 else 0
+        circularity = (4 * math.pi * seed["area_px"]) / (perimeter_px ** 2) if perimeter_px > 0 else 0
+        elongation = 1 - (minor_px / major_px) if major_px > 0 else 0
+        compactness = (perimeter_px ** 2) / seed["area_px"] if seed["area_px"] > 0 else 0
+        roundness = (4 * seed["area_px"]) / (math.pi * major_px ** 2) if major_px > 0 else 0
 
         summary.append(
             {
@@ -77,6 +85,11 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
                 "major_px": major_px,
                 "minor_px": minor_px,
                 "eq_diam_px": eq_diam_px,
+                "aspect_ratio": aspect_ratio,
+                "circularity": circularity,
+                "elongation": elongation,
+                "compactness": compactness,
+                "roundness": roundness,
                 # TODO: These will be None until mm_per_pixel is calibrated
                 "area_mm2": seed["area_px"] * (mm_per_pixel**2) if mm_per_pixel else None,
                 "perimeter_mm": to_mm(perimeter_px),
@@ -99,22 +112,17 @@ def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
 
         x, y, w, h = cv2.boundingRect(contour)
         
-        # Display diameter, circumference, and area
-        if seed["eq_diam_mm"] is not None and seed["perimeter_mm"] is not None and seed["area_mm2"] is not None:
-            label = f"D:{seed['eq_diam_mm']:.2f}mm C:{seed['perimeter_mm']:.2f}mm A:{seed['area_mm2']:.2f}mm2"
-        elif seed["eq_diam_mm"] is not None:
-            label = f"D:{seed['eq_diam_mm']:.2f}mm"
-        else:
-            label = f"D:{seed['eq_diam_px']:.1f}px"
+        # Display only seed number
+        label = f"{idx}"
 
         cv2.putText(
             annotated,
             label,
             (x, max(0, y - 4)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
+            0.6,
             color,
-            1,
+            2,
             cv2.LINE_AA,
         )
 
@@ -132,6 +140,11 @@ def describe(summary):
     perimeters_mm = [s["perimeter_mm"] for s in summary if s["perimeter_mm"] is not None]
     areas_px = [s["area_px"] for s in summary]
     areas_mm = [s["area_mm2"] for s in summary if s["area_mm2"] is not None]
+    aspect_ratios = [s["aspect_ratio"] for s in summary]
+    circularities = [s["circularity"] for s in summary]
+    elongations = [s["elongation"] for s in summary]
+    compactnesses = [s["compactness"] for s in summary]
+    roundnesses = [s["roundness"] for s in summary]
 
     def pct(values, p):
         if not values:
@@ -143,6 +156,11 @@ def describe(summary):
     print(f"Equivalent diameter px | median={pct(eq_diams_px, 50):.2f}  p10={pct(eq_diams_px, 10):.2f}  p90={pct(eq_diams_px, 90):.2f}")
     print(f"Perimeter px | median={pct(perimeters_px, 50):.2f}  p10={pct(perimeters_px, 10):.2f}  p90={pct(perimeters_px, 90):.2f}")
     print(f"Area px^2 | median={pct(areas_px, 50):.2f}  p10={pct(areas_px, 10):.2f}  p90={pct(areas_px, 90):.2f}")
+    print(f"Aspect Ratio | median={pct(aspect_ratios, 50):.3f}  p10={pct(aspect_ratios, 10):.3f}  p90={pct(aspect_ratios, 90):.3f}")
+    print(f"Circularity | median={pct(circularities, 50):.3f}  p10={pct(circularities, 10):.3f}  p90={pct(circularities, 90):.3f}")
+    print(f"Elongation | median={pct(elongations, 50):.3f}  p10={pct(elongations, 10):.3f}  p90={pct(elongations, 90):.3f}")
+    print(f"Compactness | median={pct(compactnesses, 50):.3f}  p10={pct(compactnesses, 10):.3f}  p90={pct(compactnesses, 90):.3f}")
+    print(f"Roundness | median={pct(roundnesses, 50):.3f}  p10={pct(roundnesses, 10):.3f}  p90={pct(roundnesses, 90):.3f}")
 
     if eq_diams_mm:
         print(f"Equivalent diameter mm | median={pct(eq_diams_mm, 50):.3f}  p10={pct(eq_diams_mm, 10):.3f}  p90={pct(eq_diams_mm, 90):.3f}")
