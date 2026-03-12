@@ -111,9 +111,13 @@ def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
         cv2.drawContours(annotated, [contour], -1, color, 1)
 
         x, y, w, h = cv2.boundingRect(contour)
-        
-        # Display only seed number
-        label = f"{idx}"
+
+        # Show ID and area (prefer calibrated mm^2 when available)
+        if seed.get("area_mm2") is not None:
+            area_text = f"{seed['area_mm2']:.2f} mm^2"
+        else:
+            area_text = f"{seed['area_px']:.1f} px^2"
+        label = f"ID {idx} | A {area_text}"
 
         cv2.putText(
             annotated,
