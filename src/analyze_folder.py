@@ -32,21 +32,16 @@ def build_summary_rows(image_path, summary):
             {
                 "image": image_path.name,
                 "seed_id": idx,
-                "area_px": seed["area_px"],
-                "perimeter_px": seed["perimeter_px"],
-                "major_px": seed["major_px"],
-                "minor_px": seed["minor_px"],
-                "eq_diam_px": seed["eq_diam_px"],
-                "aspect_ratio": seed["aspect_ratio"],
-                "circularity": seed["circularity"],
-                "elongation": seed["elongation"],
-                "compactness": seed["compactness"],
-                "roundness": seed["roundness"],
                 "area_mm2": seed["area_mm2"],
                 "perimeter_mm": seed["perimeter_mm"],
                 "major_mm": seed["major_mm"],
                 "minor_mm": seed["minor_mm"],
                 "eq_diam_mm": seed["eq_diam_mm"],
+                "aspect_ratio": seed["aspect_ratio"],
+                "circularity": seed["circularity"],
+                "elongation": seed["elongation"],
+                "compactness": seed["compactness"],
+                "roundness": seed["roundness"],
             }
         )
     return rows
@@ -60,21 +55,16 @@ def save_summary_csv(rows):
     fieldnames = [
         "image",
         "seed_id",
-        "area_px",
-        "perimeter_px",
-        "major_px",
-        "minor_px",
-        "eq_diam_px",
-        "aspect_ratio",
-        "circularity",
-        "elongation",
-        "compactness",
-        "roundness",
         "area_mm2",
         "perimeter_mm",
         "major_mm",
         "minor_mm",
         "eq_diam_mm",
+        "aspect_ratio",
+        "circularity",
+        "elongation",
+        "compactness",
+        "roundness",
     ]
 
     with summary_path.open("w", newline="", encoding="utf-8") as csvfile:
@@ -92,6 +82,7 @@ def main():
     cropped_images_folder_path = path.Path(sys.argv[1])
     print(f"Cropped images folder path: {cropped_images_folder_path}")
 
+    mm_per_pixel = 0.005341
     all_rows = []
 
     for image_path in cropped_images_folder_path.glob("*.jpg"):
@@ -101,8 +92,8 @@ def main():
             print(f"Could not read image at {image_path}, skipping.")
             continue
         mask, seeds = segment_seeds(image, min_area_px=20.0)
-        summary = summarize_seeds(seeds, mm_per_pixel=0.005341)
-        overlay = annotate(image, summary, mm_per_pixel=0.005341)
+        summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
+        overlay = annotate(image, summary, mm_per_pixel=mm_per_pixel)
         describe(summary)
         all_rows.extend(build_summary_rows(image_path, summary))
         save_results(image_path, mask, overlay)
