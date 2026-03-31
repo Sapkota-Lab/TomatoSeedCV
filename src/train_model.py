@@ -1,8 +1,9 @@
 import math
 import cv2
 import numpy as np
-
+    
 def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
+
     # Step 1: Convert to grayscale
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     
@@ -57,7 +58,6 @@ def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
     display_mask = cv2.bitwise_not(threshold_mask)
     return display_mask, seeds
 
-
 def summarize_seeds(seeds, mm_per_pixel: float | None):
     summary = []
     for seed in seeds:
@@ -101,7 +101,6 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
 
     return summary
 
-
 def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
     annotated = image_bgr.copy()
     color = (0, 180, 255)
@@ -127,7 +126,6 @@ def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
         )
 
     return annotated
-
 
 def describe(summary):
     if not summary:
