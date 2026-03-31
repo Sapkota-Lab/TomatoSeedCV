@@ -35,3 +35,4 @@ env/
 
 # Project specific
 outputs/
+.env

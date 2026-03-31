@@ -1,17 +1,22 @@
 """
-Shiny app for strawberry seed detection and measurement.
+Shiny app for strawberry/tomato seed detection and measurement.
 Upload an image to segment seeds and view the mask and overlay results.
 """
 import tempfile
 from pathlib import Path
 import io
 import base64
+import os
 
 import cv2
 import numpy as np
 from shiny import App, render, ui, reactive
+from dotenv import load_dotenv
+load_dotenv()
 
 from src.train_model import segment_seeds, summarize_seeds, annotate, describe
+from src.roboflow_rimdetect import run_rim_detection, summarize_rim
+
 
 
 # Helper function to convert cv2 image to base64 for display
@@ -39,6 +44,15 @@ app_ui = ui.page_fluid(
                 min=0.0001,
                 max=1.0,
                 step=0.0001
+            ),
+            ui.input_radio_buttons(
+                "seed_type",
+                "Seed Type",
+                choices={
+                    "whole": "Whole Seed",
+                    "bisected": "Bisected Seed (Rim)"
+                },
+                selected="whole"
             ),
             ui.input_numeric(
                 "min_area_px",
@@ -118,25 +132,33 @@ def server(input, output, session):
         min_area_px = input.min_area_px()
         min_area_mm2 = input.min_area_mm2()
         max_area_mm2 = input.max_area_mm2()
+        seed_type = input.seed_type()
         
-        # Process the image
-        mask, seeds = segment_seeds(image, min_area_px=min_area_px)
-        summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
-        
-        # Apply optional area filters (mm²) if calibration is available
-        if mm_per_pixel and mm_per_pixel > 0:
-            # Filter seeds by mm² bounds if they have valid calibrated area
-            filtered_summary = []
-            for seed in summary:
-                if seed['area_mm2'] is not None:
-                    if min_area_mm2 <= seed['area_mm2'] <= max_area_mm2:
+        # Process the image based on seed type
+        if seed_type == "whole":
+    # Run the existing full-seed pipeline
+            mask, seeds = segment_seeds(image, min_area_px=min_area_px)
+            summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
+
+    # Apply optional area filters (mm²)
+            if mm_per_pixel and mm_per_pixel > 0:
+                filtered_summary = []
+                for seed in summary:
+                    if seed['area_mm2'] is not None:
+                        if min_area_mm2 <= seed['area_mm2'] <= max_area_mm2:
+                            filtered_summary.append(seed)
+                    else:
                         filtered_summary.append(seed)
-                else:
-                    # If no calibration, keep seed
-                    filtered_summary.append(seed)
-            summary = filtered_summary
-        
-        overlay = annotate(image, summary, mm_per_pixel)
+                summary = filtered_summary
+
+            overlay = annotate(image, summary, mm_per_pixel)
+
+        elif seed_type == "bisected":
+            # Run the Roboflow rim pipeline
+            rim_output = run_rim_detection(file_path)
+            mask = rim_output["mask"]
+            overlay = rim_output["overlay"]
+            summary = summarize_rim(mask, mm_per_pixel=mm_per_pixel)
         
         # Store results
         processed_data.set({
@@ -144,6 +166,7 @@ def server(input, output, session):
             "mask": mask,
             "overlay": overlay,
             "summary": summary,
+            "seed_type": seed_type,
             "error": None
         })
     
@@ -166,8 +189,7 @@ def server(input, output, session):
         
         img_base64 = cv2_to_base64(data["original"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="max-width: 100%; height: auto;" />'
-        )
+            f'<img src="{img_base64}" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />'        )
     
     @output
     @render.ui
@@ -182,8 +204,7 @@ def server(input, output, session):
         
         img_base64 = cv2_to_base64(data["mask"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="max-width: 100%; height: auto;" />'
-        )
+            f'<img src="{img_base64}" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />'        )
     
     @output
     @render.ui
@@ -198,8 +219,7 @@ def server(input, output, session):
         
         img_base64 = cv2_to_base64(data["overlay"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="max-width: 100%; height: auto;" />'
-        )
+            f'<img src="{img_base64}" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />'        )
     
     @output
     @render.ui
@@ -212,84 +232,146 @@ def server(input, output, session):
                 style="padding: 20px; text-align: center; color: #666;"
             )
         
+        seed_type = data.get("seed_type")
         summary = data["summary"]
-        if not summary:
+
+        if summary is None:
             return ui.div(
                 ui.p("No seeds detected."),
                 style="padding: 20px; text-align: center; color: #666;"
             )
-        
+                
         # Get calibration value to determine units
         mm_per_pixel = input.mm_per_pixel()
         has_calibration = mm_per_pixel is not None and mm_per_pixel > 0
-        
-        # Build per-seed HTML table
+
         area_unit = "mm²" if has_calibration else "px²"
+        thickness_unit = "mm" if has_calibration else "px"
         size_unit = "mm" if has_calibration else "px"
         
-        stats_html = """
-        <style>
-            .stats-table {{ font-family: monospace; font-size: 11px; overflow-x: auto; }}
-            .stats-table table {{ border-collapse: collapse; }}
-            .stats-table th {{ background-color: #f0f0f0; padding: 8px; text-align: right; border: 1px solid #ccc; }}
-            .stats-table td {{ padding: 8px; text-align: right; border: 1px solid #e0e0e0; }}
-            .stats-table .seed-id {{ text-align: center; font-weight: bold; background-color: #f9f9f9; }}
-        </style>
-        <div class="stats-table">
-            <p><strong>Per-seed statistics ({} seeds detected)</strong></p>
-            <p style="font-size: 10px; color: #666;">Match the seed numbers on the overlay image to identify problematic detections.</p>
-            <table>
-                <tr style="background-color: #f0f0f0;">
-                    <th class="seed-id">Seed #</th>
-                    <th>Area ({unit_area})</th>
-                    <th>Eq.Diam ({unit_size})</th>
-                    <th>Perimeter ({unit_size})</th>
-                    <th>AR</th>
-                    <th>Circ</th>
-                    <th>Elong</th>
-                    <th>Compact</th>
-                    <th>Round</th>
-                </tr>
-        """.format(len(summary), unit_area=area_unit, unit_size=size_unit)
-        
-        for idx, seed in enumerate(summary, start=1):
-            if has_calibration:
-                area_val = seed['area_mm2'] if seed['area_mm2'] is not None else seed['area_px']
-                diam_val = seed['eq_diam_mm'] if seed['eq_diam_mm'] is not None else seed['eq_diam_px']
-                perim_val = seed['perimeter_mm'] if seed['perimeter_mm'] is not None else seed['perimeter_px']
-                area_fmt = f"{area_val:.3f}" if seed['area_mm2'] is not None else f"{area_val:.1f}"
-                diam_fmt = f"{diam_val:.3f}" if seed['eq_diam_mm'] is not None else f"{diam_val:.2f}"
-                perim_fmt = f"{perim_val:.3f}" if seed['perimeter_mm'] is not None else f"{perim_val:.2f}"
-            else:
-                area_fmt = f"{seed['area_px']:.1f}"
-                diam_fmt = f"{seed['eq_diam_px']:.2f}"
-                perim_fmt = f"{seed['perimeter_px']:.2f}"
+        if seed_type == "bisected":
             
-            stats_html += f"""
-                <tr>
-                    <td class="seed-id">{idx}</td>
-                    <td>{area_fmt}</td>
-                    <td>{diam_fmt}</td>
-                    <td>{perim_fmt}</td>
-                    <td>{seed['aspect_ratio']:.3f}</td>
-                    <td>{seed['circularity']:.3f}</td>
-                    <td>{seed['elongation']:.3f}</td>
-                    <td>{seed['compactness']:.3f}</td>
-                    <td>{seed['roundness']:.3f}</td>
-                </tr>
+
+            rim_area = summary["rim_area_mm2"] if has_calibration and summary["rim_area_mm2"] is not None else summary["rim_area_px"]
+            avg_thickness = summary["avg_thickness_mm"] if has_calibration and summary["avg_thickness_mm"] is not None else summary["avg_thickness_px"]
+            max_thickness = summary["max_thickness_mm"] if has_calibration and summary["max_thickness_mm"] is not None else summary["max_thickness_px"]
+            min_thickness = summary["min_thickness_mm"] if has_calibration and summary["min_thickness_mm"] is not None else summary["min_thickness_px"]
+            std_thickness = summary["std_thickness_mm"] if has_calibration and summary["std_thickness_mm"] is not None else summary["std_thickness_px"]
+
+            calibration_note = (
+            f'<p style="font-size: 10px; color: #080; font-weight: bold; margin-top: 10px;">'
+            f'✓ Calibrated at {mm_per_pixel:.4f} mm/pixel - values in mm'
+            f'</p>'
+            if has_calibration else
+            '<p style="font-size: 10px; color: #c00; font-weight: bold; margin-top: 10px;">'
+            'No mm calibration - values in pixels.'
+            '</p>'
+            )
+
+            stats_html = f"""
+            <style>
+                .stats-table {{ font-family: monospace; font-size: 12px; overflow-x: auto; }}
+                .stats-table table {{ border-collapse: collapse; width: 100%; max-width: 500px; }}
+                .stats-table th {{ background-color: #f0f0f0; padding: 8px; text-align: left; border: 1px solid #ccc; }}
+                .stats-table td {{ padding: 8px; border: 1px solid #e0e0e0; }}
+            </style>
+            <div class="stats-table">
+                <p><strong>Bisected seed rim statistics</strong></p>
+                <table>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Value</th>
+                    </tr>
+                    <tr>
+                        <td>Rim Area</td>
+                        <td>{rim_area:.4f} {area_unit}</td>
+                    </tr>
+                    <tr>
+                        <td>Average Thickness</td>
+                        <td>{avg_thickness:.4f} {thickness_unit}</td>
+                    </tr>
+                    <tr>
+                        <td>Maximum Thickness</td>
+                        <td>{max_thickness:.4f} {thickness_unit}</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum Thickness</td>
+                        <td>{min_thickness:.4f} {thickness_unit}</td>
+                    </tr>
+                    <tr>
+                        <td>Thickness Std. Dev.</td>
+                        <td>{std_thickness:.4f} {thickness_unit}</td>
+                    </tr>
+                </table>
+                {calibration_note}
+            </div>
             """
+            return ui.HTML(stats_html)
         
-        calibration_note = f"<p style=\"font-size: 10px; color: #080; font-weight: bold; margin-top: 10px;\">✓ Calibrated at {mm_per_pixel:.4f} mm/pixel - values in mm</p>" if has_calibration else "<p style=\"font-size: 10px; color: #c00; font-weight: bold; margin-top: 10px;\">⚠ No calibration - values in pixels. Set calibration value and reprocess.</p>"
+        else:
+            stats_html = """
+            <style>
+                .stats-table {{ font-family: monospace; font-size: 11px; overflow-x: auto; }}
+                .stats-table table {{ border-collapse: collapse; }}
+                .stats-table th {{ background-color: #f0f0f0; padding: 8px; text-align: right; border: 1px solid #ccc; }}
+                .stats-table td {{ padding: 8px; text-align: right; border: 1px solid #e0e0e0; }}
+                .stats-table .seed-id {{ text-align: center; font-weight: bold; background-color: #f9f9f9; }}
+            </style>
+            <div class="stats-table">
+                <p><strong>Per-seed statistics ({} seeds detected)</strong></p>
+                <p style="font-size: 10px; color: #666;">Match the seed numbers on the overlay image to identify problematic detections.</p>
+                <table>
+                    <tr style="background-color: #f0f0f0;">
+                        <th class="seed-id">Seed #</th>
+                        <th>Area ({unit_area})</th>
+                        <th>Eq.Diam ({unit_size})</th>
+                        <th>Perimeter ({unit_size})</th>
+                        <th>AR</th>
+                        <th>Circ</th>
+                        <th>Elong</th>
+                        <th>Compact</th>
+                        <th>Round</th>
+                    </tr>
+            """.format(len(summary), unit_area=area_unit, unit_size=size_unit)
         
-        stats_html += """
-            </table>
-            {calibration_note}
-            <p style="font-size: 10px; color: #666; margin-top: 15px;">
-                <strong>Legend:</strong> AR=Aspect Ratio | Circ=Circularity | Elong=Elongation | Compact=Compactness | Round=Roundness
-            </p>
-        </div>
-        """.format(calibration_note=calibration_note)
-        return ui.HTML(stats_html)
+            for idx, seed in enumerate(summary, start=1):
+                if has_calibration:
+                    area_val = seed['area_mm2'] if seed['area_mm2'] is not None else seed['area_px']
+                    diam_val = seed['eq_diam_mm'] if seed['eq_diam_mm'] is not None else seed['eq_diam_px']
+                    perim_val = seed['perimeter_mm'] if seed['perimeter_mm'] is not None else seed['perimeter_px']
+                    area_fmt = f"{area_val:.3f}" if seed['area_mm2'] is not None else f"{area_val:.1f}"
+                    diam_fmt = f"{diam_val:.3f}" if seed['eq_diam_mm'] is not None else f"{diam_val:.2f}"
+                    perim_fmt = f"{perim_val:.3f}" if seed['perimeter_mm'] is not None else f"{perim_val:.2f}"
+                else:
+                    area_fmt = f"{seed['area_px']:.1f}"
+                    diam_fmt = f"{seed['eq_diam_px']:.2f}"
+                    perim_fmt = f"{seed['perimeter_px']:.2f}"
+            
+                stats_html += f"""
+                    <tr>
+                        <td class="seed-id">{idx}</td>
+                        <td>{area_fmt}</td>
+                        <td>{diam_fmt}</td>
+                        <td>{perim_fmt}</td>
+                        <td>{seed['aspect_ratio']:.3f}</td>
+                        <td>{seed['circularity']:.3f}</td>
+                        <td>{seed['elongation']:.3f}</td>
+                        <td>{seed['compactness']:.3f}</td>
+                        <td>{seed['roundness']:.3f}</td>
+                    </tr>
+                """
+        
+            calibration_note = f"<p style=\"font-size: 10px; color: #080; font-weight: bold; margin-top: 10px;\">✓ Calibrated at {mm_per_pixel:.4f} mm/pixel - values in mm</p>" if has_calibration else "<p style=\"font-size: 10px; color: #c00; font-weight: bold; margin-top: 10px;\">⚠ No calibration - values in pixels. Set calibration value and reprocess.</p>"
+        
+            stats_html += """
+                </table>
+                {calibration_note}
+                <p style="font-size: 10px; color: #666; margin-top: 15px;">
+                    <strong>Legend:</strong> AR=Aspect Ratio | Circ=Circularity | Elong=Elongation | Compact=Compactness | Round=Roundness
+                </p>
+            </div>
+            """.format(calibration_note=calibration_note)
+            return ui.HTML(stats_html)
 
 
 app = App(app_ui, server)
