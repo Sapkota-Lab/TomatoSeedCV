@@ -62,6 +62,22 @@ app_ui = ui.page_fluid(
                 max=1000.0,
                 step=1.0
             ),
+            ui.input_numeric(
+                "min_area_mm2",
+                "Minimum Area (mm²) — optional",
+                value=2.0,
+                min=0.1,
+                max=100.0,
+                step=0.1
+            ),
+            ui.input_numeric(
+                "max_area_mm2",
+                "Maximum Area (mm²) — optional",
+                value=10.0,
+                min=1.0,
+                max=100.0,
+                step=0.5
+            ),
             ui.input_action_button(
                 "process",
                 "Process Image",
@@ -114,6 +130,8 @@ def server(input, output, session):
         # Get parameters
         mm_per_pixel = input.mm_per_pixel()
         min_area_px = input.min_area_px()
+        min_area_mm2 = input.min_area_mm2()
+        max_area_mm2 = input.max_area_mm2()
         seed_type = input.seed_type()
         
         # Process the image based on seed type
@@ -121,6 +139,20 @@ def server(input, output, session):
             # Run the existing full-seed pipeline
             mask, seeds = segment_seeds(image, min_area_px=min_area_px)
             summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
+        
+        # Apply optional area filters (mm²) if calibration is available
+        if mm_per_pixel and mm_per_pixel > 0:
+            # Filter seeds by mm² bounds if they have valid calibrated area
+            filtered_summary = []
+            for seed in summary:
+                if seed['area_mm2'] is not None:
+                    if min_area_mm2 <= seed['area_mm2'] <= max_area_mm2:
+                        filtered_summary.append(seed)
+                else:
+                    # If no calibration, keep seed
+                    filtered_summary.append(seed)
+            summary = filtered_summary
+        
             overlay = annotate(image, summary, mm_per_pixel)
         
         elif seed_type == "bisected":
