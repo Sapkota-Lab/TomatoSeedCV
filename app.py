@@ -136,25 +136,23 @@ def server(input, output, session):
         
         # Process the image based on seed type
         if seed_type == "whole":
-            # Run the existing full-seed pipeline
+    # Run the existing full-seed pipeline
             mask, seeds = segment_seeds(image, min_area_px=min_area_px)
             summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
-        
-        # Apply optional area filters (mm²) if calibration is available
-        if mm_per_pixel and mm_per_pixel > 0:
-            # Filter seeds by mm² bounds if they have valid calibrated area
-            filtered_summary = []
-            for seed in summary:
-                if seed['area_mm2'] is not None:
-                    if min_area_mm2 <= seed['area_mm2'] <= max_area_mm2:
+
+    # Apply optional area filters (mm²)
+            if mm_per_pixel and mm_per_pixel > 0:
+                filtered_summary = []
+                for seed in summary:
+                    if seed['area_mm2'] is not None:
+                        if min_area_mm2 <= seed['area_mm2'] <= max_area_mm2:
+                            filtered_summary.append(seed)
+                    else:
                         filtered_summary.append(seed)
-                else:
-                    # If no calibration, keep seed
-                    filtered_summary.append(seed)
-            summary = filtered_summary
-        
+                summary = filtered_summary
+
             overlay = annotate(image, summary, mm_per_pixel)
-        
+
         elif seed_type == "bisected":
             # Run the Roboflow rim pipeline
             rim_output = run_rim_detection(file_path)
