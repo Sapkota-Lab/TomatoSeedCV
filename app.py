@@ -128,11 +128,15 @@ def server(input, output, session):
             return
         
         # Get parameters
-        mm_per_pixel = input.mm_per_pixel()
+        seed_type = input.seed_type()
+        if seed_type == "bisected":
+            mm_per_pixel = .00811
+        else:
+            mm_per_pixel = input.mm_per_pixel()
+        
         min_area_px = input.min_area_px()
         min_area_mm2 = input.min_area_mm2()
         max_area_mm2 = input.max_area_mm2()
-        seed_type = input.seed_type()
         
         # Process the image based on seed type
         if seed_type == "whole":
@@ -158,7 +162,7 @@ def server(input, output, session):
             rim_output = run_rim_detection(file_path)
             mask = rim_output["mask"]
             overlay = rim_output["overlay"]
-            summary = summarize_rim(mask, mm_per_pixel=mm_per_pixel)
+            summary = summarize_rim(mask, mm_per_pixel)
         
         # Store results
         processed_data.set({
@@ -169,6 +173,13 @@ def server(input, output, session):
             "seed_type": seed_type,
             "error": None
         })
+    @reactive.Effect
+    def update_clibration_input():
+        seed_type = input.seed_type()
+        if seed_type == "bisected":
+            ui.update_numeric("mm_per_pixel", value = .00811)
+        if seed_type == "whole":
+            ui.update_numeric("mm_per_pixel", value = 0.005341)
     
     @output
     @render.ui
@@ -242,7 +253,10 @@ def server(input, output, session):
             )
                 
         # Get calibration value to determine units
-        mm_per_pixel = input.mm_per_pixel()
+        if seed_type == "bisected":
+            mm_per_pixel = .00811
+        else:
+            mm_per_pixel = input.mm_per_pixel()
         has_calibration = mm_per_pixel is not None and mm_per_pixel > 0
 
         area_unit = "mm²" if has_calibration else "px²"
@@ -260,7 +274,7 @@ def server(input, output, session):
 
             calibration_note = (
             f'<p style="font-size: 10px; color: #080; font-weight: bold; margin-top: 10px;">'
-            f'✓ Calibrated at {mm_per_pixel:.4f} mm/pixel - values in mm'
+            f'✓ Calibrated at {mm_per_pixel:.4f} mm/pixel'
             f'</p>'
             if has_calibration else
             '<p style="font-size: 10px; color: #c00; font-weight: bold; margin-top: 10px;">'
