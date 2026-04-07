@@ -10,6 +10,8 @@ CLIENT = InferenceHTTPClient(
 
 MODEL_ID = "seed-rim-detection/6"
 
+mm_per_pixel = 0.00811 # adjust based on ruler image, for now its adjusted for a seed image @ 4000x6000
+
 
 def run_rim_detection(image_path):
     image = cv2.imread(image_path)
@@ -33,22 +35,8 @@ def run_rim_detection(image_path):
             )
             cv2.fillPoly(mask, [polygon], 255)
 
-    rim_area_px = int(np.sum(mask > 0)) #Total Area in PX of masked rim.
-
-
     # Distance transform calculates based on distnace from each foreground pixel to the closest background pixel.
     # Max will be the middle pixel distance * 2 to account for each side, giving us total max width.
-    dist_transform = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
-    rim_pixels = dist_transform[mask > 0]
-
-    if rim_pixels.size > 0:
-        avg_thickness_px = float(np.mean(rim_pixels) * 2)
-        max_thickenss_px = float(np.max(rim_pixels) * 2)
-        min_thickness_px = float(np.min(rim_pixels) * 2)
-        std_thickness_px = float(np.std(rim_pixels) * 2)
-
-    else:
-        avg_thickness_px, max_thickenss_px, min_thickness_px, std_thickness_px = 0.0
 
     overlay = image.copy()
     overlay[mask > 0] = (0, 255, 0)
@@ -60,7 +48,7 @@ def run_rim_detection(image_path):
         "raw_result": result,
     }
 
-def summarize_rim(mask, mm_per_pixel = None):
+def summarize_rim(mask, mm_per_pixel): 
 
 
     rim_area_px = int(np.sum(mask > 0)) #Total Area in PX of rim
@@ -75,7 +63,10 @@ def summarize_rim(mask, mm_per_pixel = None):
         std_thickness_px = float(np.std(rim_pixels) * 2)
 
     else:
-        avg_thickness_px, max_thickness_px, min_thickness_px, std_thickness_px = 0.0
+        avg_thickness_px = 0.0
+        max_thickness_px = 0.0
+        min_thickness_px = 0.0
+        std_thickness_px = 0.0
 
     summary = {
         "rim_area_px": rim_area_px,
