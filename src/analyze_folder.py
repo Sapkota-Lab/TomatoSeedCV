@@ -82,7 +82,9 @@ def main():
     cropped_images_folder_path = path.Path(sys.argv[1])
     print(f"Cropped images folder path: {cropped_images_folder_path}")
 
-    mm_per_pixel = 0.005341
+    mm_per_pixel = 0.0042
+    min_area_mm2 = 2.0
+    max_area_mm2 = 10.0
     all_rows = []
 
     for image_path in cropped_images_folder_path.glob("*.jpg"):
@@ -93,6 +95,13 @@ def main():
             continue
         mask, seeds = segment_seeds(image, min_area_px=20.0)
         summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
+
+        # Keep only likely single seeds; discard tiny debris and merged clusters.
+        summary = [
+            seed for seed in summary
+            if seed["area_mm2"] is not None and min_area_mm2 <= seed["area_mm2"] <= max_area_mm2
+        ]
+
         overlay = annotate(image, summary, mm_per_pixel=mm_per_pixel)
         describe(summary)
         all_rows.extend(build_summary_rows(image_path, summary))

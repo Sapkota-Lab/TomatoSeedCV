@@ -1,11 +1,19 @@
-from inference_sdk import InferenceHTTPClient
 import numpy as np
 import cv2
 import os
 
-CLIENT = InferenceHTTPClient(
-    api_url="https://serverless.roboflow.com",
-    api_key=os.getenv("ROBOFLOW_API_KEY")
+try:
+    from inference_sdk import InferenceHTTPClient
+except ImportError:
+    InferenceHTTPClient = None
+
+CLIENT = (
+    InferenceHTTPClient(
+        api_url="https://serverless.roboflow.com",
+        api_key=os.getenv("ROBOFLOW_API_KEY")
+    )
+    if InferenceHTTPClient is not None
+    else None
 )
 
 MODEL_ID = "seed-rim-detection/6"
@@ -14,6 +22,12 @@ mm_per_pixel = 0.00811 # adjust based on ruler image, for now its adjusted for a
 
 
 def run_rim_detection(image_path):
+    if CLIENT is None:
+        raise RuntimeError(
+            "inference-sdk is not installed for this Python version. "
+            "Use Python 3.12 for bisected-seed rim detection, or install a compatible inference-sdk build."
+        )
+
     image = cv2.imread(image_path)
     if image is None:
         raise ValueError("Could not read image")
