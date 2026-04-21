@@ -1,14 +1,18 @@
 from inference_sdk import InferenceHTTPClient
+from dotenv import load_dotenv
 import numpy as np
 import cv2
 import os
+
+env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(env_path, override=True) # Ensure we load the .env file
 
 CLIENT = InferenceHTTPClient(
     api_url="https://serverless.roboflow.com",
     api_key=os.getenv("ROBOFLOW_API_KEY")
 )
 
-MODEL_ID = "seed-rim-detection/6"
+MODEL_ID = "seed-rim-detection/7"
 
 mm_per_pixel = 0.00811 # adjust based on ruler image, for now its adjusted for a seed image @ 4000x6000
 
