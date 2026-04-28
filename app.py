@@ -18,7 +18,6 @@ from src.roboflow_rimdetect import run_rim_detection, summarize_rim
 from src.whole_seed_roboflow import run_whole_seed_detection
 
 
-
 # Helper function to convert cv2 image to base64 for display
 def cv2_to_base64(image):
     """Convert OpenCV image to base64 string for HTML display."""
@@ -111,36 +110,40 @@ app_ui = ui.page_fluid(
 
 
 def server(input, output, session):
+    """Server function for Shiny app."""
     # Reactive value to store processed results
     processed_data = reactive.Value(None)
-    
+    overlay = None
+    summary = None
+
     @reactive.Effect
     @reactive.event(input.process)
     def process_image():
         """Process the uploaded image when the button is clicked."""
+        nonlocal overlay, summary
         file_info = input.file_upload()
         if not file_info:
             return
-        
+
         # Read the uploaded image
         file_path = file_info[0]["datapath"]
         image = cv2.imread(file_path)
-        
+
         if image is None:
             processed_data.set({"error": "Could not read the uploaded image."})
             return
-        
+
         # Get parameters
         seed_type = input.seed_type()
         if seed_type == "bisected":
             mm_per_pixel = .00811
         else:
             mm_per_pixel = input.mm_per_pixel()
-        
+
         min_area_px = input.min_area_px()
         min_area_mm2 = input.min_area_mm2()
         max_area_mm2 = input.max_area_mm2()
-        
+
         try:
             # Process the image based on seed type
             if seed_type == "whole":
@@ -166,7 +169,7 @@ def server(input, output, session):
         except Exception as exc:
             processed_data.set({"error": f"Processing failed: {exc}"})
             return
-        
+
         # Store results
         processed_data.set({
             "original": image,
@@ -177,14 +180,16 @@ def server(input, output, session):
             "diagnostics": diagnostics,
             "error": None
         })
+
     @reactive.Effect
     def update_clibration_input():
+        """Update calibration input based on seed type."""
         seed_type = input.seed_type()
         if seed_type == "bisected":
-            ui.update_numeric("mm_per_pixel", value = .00811)
+            ui.update_numeric("mm_per_pixel", value=.00811)
         if seed_type == "whole":
-            ui.update_numeric("mm_per_pixel", value = 0.005341)
-    
+            ui.update_numeric("mm_per_pixel", value=0.005341)
+
     @output
     @render.ui
     def original_image():
@@ -195,17 +200,18 @@ def server(input, output, session):
                 ui.p("Upload an image and click 'Process Image' to begin."),
                 style="padding: 20px; text-align: center; color: #666;"
             )
-        
+
         if data.get("error"):
             return ui.div(
                 ui.p(data["error"]),
                 style="padding: 20px; text-align: center; color: red;"
             )
-        
+
         img_base64 = cv2_to_base64(data["original"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'        )
-    
+            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'
+        )
+
     @output
     @render.ui
     def mask_image():
@@ -216,11 +222,12 @@ def server(input, output, session):
                 ui.p("No mask available. Process an image first."),
                 style="padding: 20px; text-align: center; color: #666;"
             )
-        
+
         img_base64 = cv2_to_base64(data["mask"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'        )
-    
+            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'
+        )
+
     @output
     @render.ui
     def overlay_image():
@@ -231,11 +238,12 @@ def server(input, output, session):
                 ui.p("No overlay available. Process an image first."),
                 style="padding: 20px; text-align: center; color: #666;"
             )
-        
+
         img_base64 = cv2_to_base64(data["overlay"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'        )
-    
+            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'
+        )
+
     @output
     @render.ui
     def statistics_panel():
@@ -246,7 +254,7 @@ def server(input, output, session):
                 ui.p("No statistics available. Process an image first."),
                 style="padding: 20px; text-align: center; color: #666;"
             )
-        
+
         seed_type = data.get("seed_type")
         summary = data["summary"]
 
@@ -255,7 +263,7 @@ def server(input, output, session):
                 ui.p("No seeds detected."),
                 style="padding: 20px; text-align: center; color: #666;"
             )
-                
+
         # Get calibration value to determine units
         if seed_type == "bisected":
             mm_per_pixel = .00811
@@ -266,32 +274,43 @@ def server(input, output, session):
         area_unit = "mm²" if has_calibration else "px²"
         thickness_unit = "mm" if has_calibration else "px"
         size_unit = "mm" if has_calibration else "px"
-        
-        if seed_type == "bisected":
-            
 
-            rim_area = summary["rim_area_mm2"] if has_calibration and summary["rim_area_mm2"] is not None else summary["rim_area_px"]
-            avg_thickness = summary["avg_thickness_mm"] if has_calibration and summary["avg_thickness_mm"] is not None else summary["avg_thickness_px"]
-            max_thickness = summary["max_thickness_mm"] if has_calibration and summary["max_thickness_mm"] is not None else summary["max_thickness_px"]
-            min_thickness = summary["min_thickness_mm"] if has_calibration and summary["min_thickness_mm"] is not None else summary["min_thickness_px"]
-            std_thickness = summary["std_thickness_mm"] if has_calibration and summary["std_thickness_mm"] is not None else summary["std_thickness_px"]
+        if seed_type == "bisected":
+            rim_area = (summary["rim_area_mm2"] if has_calibration
+                        and summary["rim_area_mm2"] is not None
+                        else summary["rim_area_px"])
+            avg_thickness = (summary["avg_thickness_mm"] if has_calibration
+                             and summary["avg_thickness_mm"] is not None
+                             else summary["avg_thickness_px"])
+            max_thickness = (summary["max_thickness_mm"] if has_calibration
+                             and summary["max_thickness_mm"] is not None
+                             else summary["max_thickness_px"])
+            min_thickness = (summary["min_thickness_mm"] if has_calibration
+                             and summary["min_thickness_mm"] is not None
+                             else summary["min_thickness_px"])
+            std_thickness = (summary["std_thickness_mm"] if has_calibration
+                             and summary["std_thickness_mm"] is not None
+                             else summary["std_thickness_px"])
 
             calibration_note = (
-            f'<p style="font-size: 10px; color: #080; font-weight: bold; margin-top: 10px;">'
-            f'✓ Calibrated at {mm_per_pixel:.4f} mm/pixel'
-            f'</p>'
-            if has_calibration else
-            '<p style="font-size: 10px; color: #c00; font-weight: bold; margin-top: 10px;">'
-            'No mm calibration - values in pixels.'
-            '</p>'
+                f'<p style="font-size: 10px; color: #080; font-weight: bold; '
+                f'margin-top: 10px;">✓ Calibrated at {mm_per_pixel:.4f} '
+                f'mm/pixel</p>'
+                if has_calibration else
+                '<p style="font-size: 10px; color: #c00; font-weight: bold; '
+                'margin-top: 10px;">No mm calibration - values in pixels.</p>'
             )
 
             stats_html = f"""
             <style>
-                .stats-table {{ font-family: monospace; font-size: 12px; overflow-x: auto; }}
-                .stats-table table {{ border-collapse: collapse; width: 100%; max-width: 500px; }}
-                .stats-table th {{ background-color: #f0f0f0; padding: 8px; text-align: left; border: 1px solid #ccc; }}
-                .stats-table td {{ padding: 8px; border: 1px solid #e0e0e0; }}
+                .stats-table {{ font-family: monospace; font-size: 12px;
+                overflow-x: auto; }}
+                .stats-table table {{ border-collapse: collapse;
+                width: 100%; max-width: 500px; }}
+                .stats-table th {{ background-color: #f0f0f0; padding: 8px;
+                text-align: left; border: 1px solid #ccc; }}
+                .stats-table td {{ padding: 8px;
+                border: 1px solid #e0e0e0; }}
             </style>
             <div class="stats-table">
                 <p><strong>Bisected seed rim statistics</strong></p>
@@ -325,36 +344,43 @@ def server(input, output, session):
             </div>
             """
             return ui.HTML(stats_html)
-        
+
         else:
             diagnostics = data.get("diagnostics") or {}
             diagnostic_note = ""
             if diagnostics.get("area_filter_removed_all"):
                 diagnostic_note = (
-                    '<p style="font-size: 10px; color: #a60; font-weight: bold;">'
-                    'Area filters removed every Roboflow detection, so the app is showing '
-                    'the unfiltered whole-seed detections.'
-                    '</p>'
+                    '<p style="font-size: 10px; color: #a60; '
+                    'font-weight: bold;">Area filters removed every '
+                    'Roboflow detection, so the app is showing the unfiltered '
+                    'whole-seed detections.</p>'
                 )
             elif diagnostics and diagnostics.get("prediction_count") == 0:
                 diagnostic_note = (
-                    '<p style="font-size: 10px; color: #c00; font-weight: bold;">'
-                    'Roboflow returned 0 whole-seed predictions for this image.'
-                    '</p>'
+                    '<p style="font-size: 10px; color: #c00; '
+                    'font-weight: bold;">Roboflow returned 0 whole-seed '
+                    'predictions for this image.</p>'
                 )
 
             stats_html = """
             <style>
-                .stats-table {{ font-family: monospace; font-size: 11px; overflow-x: auto; }}
+                .stats-table {{ font-family: monospace; font-size: 11px;
+                overflow-x: auto; }}
                 .stats-table table {{ border-collapse: collapse; }}
-                .stats-table th {{ background-color: #f0f0f0; padding: 8px; text-align: right; border: 1px solid #ccc; }}
-                .stats-table td {{ padding: 8px; text-align: right; border: 1px solid #e0e0e0; }}
-                .stats-table .seed-id {{ text-align: center; font-weight: bold; background-color: #f9f9f9; }}
+                .stats-table th {{ background-color: #f0f0f0; padding: 8px;
+                text-align: right; border: 1px solid #ccc; }}
+                .stats-table td {{ padding: 8px; text-align: right;
+                border: 1px solid #e0e0e0; }}
+                .stats-table .seed-id {{ text-align: center;
+                font-weight: bold; background-color: #f9f9f9; }}
             </style>
             <div class="stats-table">
-                <p><strong>Per-seed statistics ({} seeds detected)</strong></p>
+                <p><strong>Per-seed statistics ({} seeds detected)</strong>
+                </p>
                 {}
-                <p style="font-size: 10px; color: #666;">Match the seed numbers on the overlay image to identify problematic detections.</p>
+                <p style="font-size: 10px; color: #666;">Match the seed
+                numbers on the overlay image to identify problematic
+                detections.</p>
                 <table>
                     <tr style="background-color: #f0f0f0;">
                         <th class="seed-id">Seed #</th>
@@ -367,21 +393,29 @@ def server(input, output, session):
                         <th>Compact</th>
                         <th>Round</th>
                     </tr>
-            """.format(len(summary), diagnostic_note, unit_area=area_unit, unit_size=size_unit)
-        
+            """.format(len(summary), diagnostic_note,
+                       unit_area=area_unit, unit_size=size_unit)
+
             for idx, seed in enumerate(summary, start=1):
                 if has_calibration:
-                    area_val = seed['area_mm2'] if seed['area_mm2'] is not None else seed['area_px']
-                    diam_val = seed['eq_diam_mm'] if seed['eq_diam_mm'] is not None else seed['eq_diam_px']
-                    perim_val = seed['perimeter_mm'] if seed['perimeter_mm'] is not None else seed['perimeter_px']
-                    area_fmt = f"{area_val:.3f}" if seed['area_mm2'] is not None else f"{area_val:.1f}"
-                    diam_fmt = f"{diam_val:.3f}" if seed['eq_diam_mm'] is not None else f"{diam_val:.2f}"
-                    perim_fmt = f"{perim_val:.3f}" if seed['perimeter_mm'] is not None else f"{perim_val:.2f}"
+                    area_val = (seed['area_mm2'] if seed['area_mm2']
+                                is not None else seed['area_px'])
+                    diam_val = (seed['eq_diam_mm'] if seed['eq_diam_mm']
+                                is not None else seed['eq_diam_px'])
+                    perim_val = (seed['perimeter_mm']
+                                 if seed['perimeter_mm'] is not None
+                                 else seed['perimeter_px'])
+                    area_fmt = (f"{area_val:.3f}" if seed['area_mm2']
+                                is not None else f"{area_val:.1f}")
+                    diam_fmt = (f"{diam_val:.3f}" if seed['eq_diam_mm']
+                                is not None else f"{diam_val:.2f}")
+                    perim_fmt = (f"{perim_val:.3f}" if seed['perimeter_mm']
+                                 is not None else f"{perim_val:.2f}")
                 else:
                     area_fmt = f"{seed['area_px']:.1f}"
                     diam_fmt = f"{seed['eq_diam_px']:.2f}"
                     perim_fmt = f"{seed['perimeter_px']:.2f}"
-            
+
                 stats_html += f"""
                     <tr>
                         <td class="seed-id">{idx}</td>
@@ -395,14 +429,24 @@ def server(input, output, session):
                         <td>{seed['roundness']:.3f}</td>
                     </tr>
                 """
-        
-            calibration_note = f"<p style=\"font-size: 10px; color: #080; font-weight: bold; margin-top: 10px;\">✓ Calibrated at {mm_per_pixel:.4f} mm/pixel - values in mm</p>" if has_calibration else "<p style=\"font-size: 10px; color: #c00; font-weight: bold; margin-top: 10px;\">⚠ No calibration - values in pixels. Set calibration value and reprocess.</p>"
-        
+
+            calibration_note = (
+                f'<p style="font-size: 10px; color: #080; '
+                f'font-weight: bold; margin-top: 10px;">✓ Calibrated at '
+                f'{mm_per_pixel:.4f} mm/pixel - values in mm</p>'
+                if has_calibration else
+                '<p style="font-size: 10px; color: #c00; font-weight: bold; '
+                'margin-top: 10px;">⚠ No calibration - values in pixels. Set '
+                'calibration value and reprocess.</p>'
+            )
+
             stats_html += """
                 </table>
                 {calibration_note}
                 <p style="font-size: 10px; color: #666; margin-top: 15px;">
-                    <strong>Legend:</strong> AR=Aspect Ratio | Circ=Circularity | Elong=Elongation | Compact=Compactness | Round=Roundness
+                    <strong>Legend:</strong> AR=Aspect Ratio |
+                    Circ=Circularity | Elong=Elongation |
+                    Compact=Compactness | Round=Roundness
                 </p>
             </div>
             """.format(calibration_note=calibration_note)
