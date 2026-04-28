@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 import os
-from typing import Any
+from typing import Any, NamedTuple
 
 import cv2
 import numpy as np
@@ -19,9 +19,9 @@ import requests
 from dotenv import load_dotenv
 
 try:
-    from src.train_model import summarize_seeds
+    from src.train_model import seed_records_from_contours, summarize_seeds
 except ImportError:  # Allows direct execution from inside src/
-    from train_model import summarize_seeds
+    from train_model import seed_records_from_contours, summarize_seeds
 
 
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -32,6 +32,17 @@ DEFAULT_API_URL = "https://outline.roboflow.com"
 DEFAULT_CONFIDENCE = 0.20
 DEFAULT_API_CONFIDENCE = 40
 DEFAULT_API_OVERLAP = 30
+
+
+class WholeSeedDetectionOptions(NamedTuple):
+    """Configuration for whole-seed Roboflow detection."""
+
+    min_area_px: float = 20.0
+    mm_per_pixel: float | None = None
+    min_area_mm2: float | None = None
+    max_area_mm2: float | None = None
+    model_id: str | None = None
+    confidence_threshold: float | None = None
 
 
 def _get_float_env(name: str, default: float) -> float:
@@ -165,31 +176,7 @@ def scale_mask_to_image(mask: np.ndarray, image_shape: tuple[int, ...]) -> np.nd
 def seeds_from_mask(mask: np.ndarray, min_area_px: float = 20.0) -> list[dict[str, Any]]:
     """Convert a binary whole-seed mask into contour records for measurement."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-
-    seeds = []
-    for contour in contours:
-        area_px = cv2.contourArea(contour)
-        if area_px < min_area_px:
-            continue
-
-        rect = cv2.minAreaRect(contour)
-        width_px, height_px = rect[1]
-        if width_px == 0 or height_px == 0:
-            continue
-
-        seeds.append(
-            {
-                "contour": contour,
-                "area_px": area_px,
-                "width_px": float(width_px),
-                "height_px": float(height_px),
-                "center": tuple(rect[0]),
-                "angle": float(rect[2]),
-            }
-        )
-
-    seeds.sort(key=lambda seed: seed["area_px"], reverse=True)
-    return seeds
+    return seed_records_from_contours(contours, min_area_px)
 
 
 def filter_summary_by_area(
@@ -236,7 +223,6 @@ def create_overlay(
     image: np.ndarray,
     mask: np.ndarray,
     summary: list[dict[str, Any]],
-    mm_per_pixel: float | None,
 ) -> np.ndarray:
     """Create a visible overlay for high-resolution whole-seed images."""
     overlay_layer = image.copy()
@@ -298,14 +284,65 @@ def create_overlay(
     return overlay
 
 
+def _normalize_options(
+    options: WholeSeedDetectionOptions | None,
+    overrides: dict[str, Any],
+) -> WholeSeedDetectionOptions:
+    """Combine the options object with legacy keyword overrides."""
+    normalized = options or WholeSeedDetectionOptions()
+    if not overrides:
+        return normalized
+
+    option_fields = WholeSeedDetectionOptions.__annotations__
+    unknown_options = set(overrides) - set(option_fields)
+    if unknown_options:
+        unknown = ", ".join(sorted(unknown_options))
+        raise TypeError(f"Unknown whole-seed detection option(s): {unknown}")
+
+    values = {field: getattr(normalized, field) for field in option_fields}
+    values.update(overrides)
+    return WholeSeedDetectionOptions(**values)
+
+
+def _selected_model(options: WholeSeedDetectionOptions) -> str:
+    """Return the configured Roboflow model."""
+    return options.model_id or os.getenv("WHOLE_SEED_MODEL_ID", DEFAULT_MODEL_ID)
+
+
+def _selected_confidence(options: WholeSeedDetectionOptions) -> float:
+    """Return the configured local prediction confidence threshold."""
+    if options.confidence_threshold is None:
+        return _get_float_env("WHOLE_SEED_CONFIDENCE", DEFAULT_CONFIDENCE)
+    return options.confidence_threshold
+
+
+def _summaries_from_mask(
+    raw_mask: np.ndarray,
+    options: WholeSeedDetectionOptions,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Return displayed and unfiltered seed summaries plus filter diagnostics."""
+    seeds = seeds_from_mask(raw_mask, min_area_px=options.min_area_px)
+    unfiltered_summary = summarize_seeds(seeds, mm_per_pixel=options.mm_per_pixel)
+    summary = unfiltered_summary
+
+    if options.mm_per_pixel and options.mm_per_pixel > 0:
+        summary = filter_summary_by_area(
+            summary,
+            options.min_area_mm2,
+            options.max_area_mm2,
+        )
+
+    area_filter_removed_all = bool(unfiltered_summary and not summary)
+    if area_filter_removed_all:
+        summary = unfiltered_summary
+
+    return summary, unfiltered_summary, area_filter_removed_all
+
+
 def run_whole_seed_detection(
     image_path: str,
-    min_area_px: float = 20.0,
-    mm_per_pixel: float | None = None,
-    min_area_mm2: float | None = None,
-    max_area_mm2: float | None = None,
-    model_id: str | None = None,
-    confidence_threshold: float | None = None,
+    options: WholeSeedDetectionOptions | None = None,
+    **option_overrides: Any,
 ) -> dict[str, Any]:
     """
     Run Roboflow whole-seed segmentation and return Shiny-ready outputs.
@@ -314,35 +351,27 @@ def run_whole_seed_detection(
         A dict with original image, filtered binary mask, annotated overlay,
         per-seed summary, and raw Roboflow result.
     """
+    options = _normalize_options(options, option_overrides)
     image = cv2.imread(image_path)
     if image is None:
         raise ValueError(f"Could not read image: {image_path}")
 
-    model = model_id or os.getenv("WHOLE_SEED_MODEL_ID", DEFAULT_MODEL_ID)
-    confidence = (
-        _get_float_env("WHOLE_SEED_CONFIDENCE", DEFAULT_CONFIDENCE)
-        if confidence_threshold is None
-        else confidence_threshold
-    )
-
-    result = call_roboflow(image_path, model)
+    result = call_roboflow(image_path, _selected_model(options))
     prediction_shape = prediction_image_shape(result, image.shape)
-    prediction_mask = extract_mask_from_predictions(result, prediction_shape, confidence)
+    prediction_mask = extract_mask_from_predictions(
+        result,
+        prediction_shape,
+        _selected_confidence(options),
+    )
     raw_mask = scale_mask_to_image(prediction_mask, image.shape)
-    seeds = seeds_from_mask(raw_mask, min_area_px=min_area_px)
-    unfiltered_summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
-    summary = unfiltered_summary
-
-    if mm_per_pixel and mm_per_pixel > 0:
-        summary = filter_summary_by_area(summary, min_area_mm2, max_area_mm2)
-
-    area_filter_removed_all = bool(unfiltered_summary and not summary)
-    if area_filter_removed_all:
-        summary = unfiltered_summary
+    summary, unfiltered_summary, area_filter_removed_all = _summaries_from_mask(
+        raw_mask,
+        options,
+    )
 
     mask = mask_from_summary(image.shape, summary)
     masked_image = apply_mask_to_image(image, mask)
-    overlay = create_overlay(image, mask, summary, mm_per_pixel)
+    overlay = create_overlay(image, mask, summary)
 
     return {
         "original": image,

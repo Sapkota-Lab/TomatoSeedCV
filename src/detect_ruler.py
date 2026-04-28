@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import cv2
 import numpy as np
 
@@ -101,7 +103,7 @@ def calibrate_from_reference_object(
         return None
 
     largest = max(contours, key=cv2.contourArea)
-    x, y, w, h = cv2.boundingRect(largest)
+    _, _, w, h = cv2.boundingRect(largest)
     length_px = max(w, h)
     if length_px <= 0:
         return None

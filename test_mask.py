@@ -1,12 +1,28 @@
+"""Manual helper for previewing the whole-seed mask overlay."""
+
+from pathlib import Path
+
 import cv2
-from src.train_model import mask_bisected_seed_body, overlay_mask
 
-img = cv2.imread("Images/IMG_1474.JPG")
-assert img is not None
+from src.train_model import annotate, segment_seeds
 
-bodymask = mask_bisected_seed_body(img)
-overlay = overlay_mask(img, bodymask)
 
-cv2.imshow("Body Mask Overlay", overlay)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+IMAGE_PATH = Path("Images/whole_imgs/img003.jpg")
+
+
+def main() -> None:
+    """Open a local image and show its annotated segmentation overlay."""
+    image = cv2.imread(str(IMAGE_PATH))
+    if image is None:
+        raise FileNotFoundError(f"Could not read image: {IMAGE_PATH}")
+
+    _, seeds = segment_seeds(image)
+    overlay = annotate(image, seeds)
+
+    cv2.imshow("Seed Mask Overlay", overlay)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()

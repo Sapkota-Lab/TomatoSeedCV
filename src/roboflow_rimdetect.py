@@ -1,11 +1,12 @@
-from inference_sdk import InferenceHTTPClient
-from dotenv import load_dotenv
-import numpy as np
-import cv2
 import os
 
+import cv2
+import numpy as np
+from dotenv import load_dotenv
+from inference_sdk import InferenceHTTPClient
+
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
-load_dotenv(env_path, override=True) # Ensure we load the .env file
+load_dotenv(env_path, override=True)  # Ensure we load the .env file
 
 CLIENT = InferenceHTTPClient(
     api_url="https://serverless.roboflow.com",
@@ -14,14 +15,15 @@ CLIENT = InferenceHTTPClient(
 
 MODEL_ID = "seed-rim-detection/7"
 
-mm_per_pixel = 0.00811 # adjust based on ruler image, for now its adjusted for a seed image @ 4000x6000
+MM_PER_PIXEL = 0.00811
 
 
 def run_rim_detection(image_path):
     if CLIENT is None:
         raise RuntimeError(
             "inference-sdk is not installed for this Python version. "
-            "Use Python 3.12 for bisected-seed rim detection, or install a compatible inference-sdk build."
+            "Use Python 3.12 for bisected-seed rim detection, or install a "
+            "compatible inference-sdk build."
         )
 
     image = cv2.imread(image_path)
@@ -33,7 +35,7 @@ def run_rim_detection(image_path):
     h, w = image.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
 
-    predictions = result.get("predictions", []) #Roboflow returns JSON points 
+    predictions = result.get("predictions", [])  # Roboflow returns JSON points
 
     # For all points the API returns, we fill in to make the mask
     for pred in predictions:
@@ -45,12 +47,13 @@ def run_rim_detection(image_path):
             )
             cv2.fillPoly(mask, [polygon], 255)
 
-    # Distance transform calculates based on distnace from each foreground pixel to the closest background pixel.
+    # Distance transform calculates based on distance from each foreground pixel
+    # to the closest background pixel.
     # Max will be the middle pixel distance * 2 to account for each side, giving us total max width.
 
     overlay = image.copy()
     overlay[mask > 0] = (0, 255, 0)
-    overlay = cv2.addWeighted(overlay, 0.4, image, 0.6, 0) #Green Overlay
+    overlay = cv2.addWeighted(overlay, 0.4, image, 0.6, 0)
 
     return {
         "mask": mask,
@@ -58,10 +61,10 @@ def run_rim_detection(image_path):
         "raw_result": result,
     }
 
-def summarize_rim(mask, mm_per_pixel): 
+def summarize_rim(mask, calibration_mm_per_pixel):
 
 
-    rim_area_px = int(np.sum(mask > 0)) #Total Area in PX of rim
+    rim_area_px = int(np.sum(mask > 0))
 
     dist_transform = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
     rim_pixels = dist_transform[mask > 0]
@@ -83,16 +86,16 @@ def summarize_rim(mask, mm_per_pixel):
         "avg_thickness_px": avg_thickness_px,
         "max_thickness_px": max_thickness_px,
         "min_thickness_px": min_thickness_px,
-        "std_thickness_px":std_thickness_px
+        "std_thickness_px": std_thickness_px,
     }
 
-    if mm_per_pixel is not None and mm_per_pixel > 0:
+    if calibration_mm_per_pixel is not None and calibration_mm_per_pixel > 0:
         summary.update({
-            "rim_area_mm2": rim_area_px * (mm_per_pixel ** 2),
-            "avg_thickness_mm": avg_thickness_px * mm_per_pixel,
-            "max_thickness_mm": max_thickness_px * mm_per_pixel,
-            "min_thickness_mm": min_thickness_px * mm_per_pixel,
-            "std_thickness_mm": std_thickness_px * mm_per_pixel,
+            "rim_area_mm2": rim_area_px * (calibration_mm_per_pixel ** 2),
+            "avg_thickness_mm": avg_thickness_px * calibration_mm_per_pixel,
+            "max_thickness_mm": max_thickness_px * calibration_mm_per_pixel,
+            "min_thickness_mm": min_thickness_px * calibration_mm_per_pixel,
+            "std_thickness_mm": std_thickness_px * calibration_mm_per_pixel,
         })
     else:
         summary.update({

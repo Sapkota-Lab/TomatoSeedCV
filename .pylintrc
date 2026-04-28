@@ -1,0 +1,24 @@
+[MASTER]
+extension-pkg-allow-list=cv2
+persistent=no
+
+[MESSAGES CONTROL]
+disable=
+    broad-exception-caught,
+    consider-using-f-string,
+    duplicate-code,
+    fixme,
+    f-string-without-interpolation,
+    invalid-name,
+    line-too-long,
+    missing-function-docstring,
+    missing-module-docstring,
+    no-else-return,
+    too-many-locals,
+    too-many-statements,
+    trailing-whitespace,
+    wrong-import-order
+
+[TYPECHECK]
+generated-members=cv2.*
+ignored-modules=inference_sdk

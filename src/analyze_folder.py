@@ -102,7 +102,7 @@ def main():
             if seed["area_mm2"] is not None and min_area_mm2 <= seed["area_mm2"] <= max_area_mm2
         ]
 
-        overlay = annotate(image, summary, mm_per_pixel=mm_per_pixel)
+        overlay = annotate(image, summary)
         describe(summary)
         all_rows.extend(build_summary_rows(image_path, summary))
         save_results(image_path, mask, overlay)
@@ -112,4 +112,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

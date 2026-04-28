@@ -2,7 +2,7 @@ import os
 import csv
 import time
 
-from roboflow_rimdetect import run_rim_detection, summarize_rim, mm_per_pixel
+from roboflow_rimdetect import MM_PER_PIXEL, run_rim_detection, summarize_rim
 
 INPUT_FOLDER = "../Images/bisected_IN"
 OUTPUT_FILE = "../outputs/bisected_rim_measurements.csv"
@@ -18,7 +18,7 @@ def process_images():
 
     # Count total images first
     total_images = 0
-    for root, dirs, files in os.walk(INPUT_FOLDER):
+    for root, _dirs, files in os.walk(INPUT_FOLDER):
         for filename in files:
             if filename.lower().endswith((".png", ".jpg", ".jpeg")):
                 total_images += 1
@@ -26,7 +26,7 @@ def process_images():
     print(f"Total images found: {total_images}")
 
     # Process images
-    for root, dirs, files in os.walk(INPUT_FOLDER):
+    for root, _dirs, files in os.walk(INPUT_FOLDER):
         print(f"Checking folder: {root} ({len(files)} files)")
         for filename in files:
             if filename.lower().endswith((".png", ".jpg", ".jpeg")):
@@ -37,7 +37,7 @@ def process_images():
                     print(f"[{request_count}/{total_images}] Processing {image_path}")
 
                     detection = run_rim_detection(image_path)
-                    summary = summarize_rim(detection["mask"], mm_per_pixel)
+                    summary = summarize_rim(detection["mask"], MM_PER_PIXEL)
 
                     # Get folder and image name
                     folder_name = os.path.basename(root)
@@ -58,19 +58,19 @@ def process_images():
                     print(f"Error processing {image_path}: {e}")
                     failed.append(image_path)
 
-    print(f"\nFinished loop.")
+    print("\nFinished loop.")
     print(f"Processed successfully: {len(results)} / {total_images}")
     print(f"Failed images: {len(failed)}")
 
     return results
 
 
-def save_to_csv(results):
+def save_to_csv(measurement_rows):
     print("Entered save_to_csv()")
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
-    with open(OUTPUT_FILE, mode="w", newline="") as file:
+    with open(OUTPUT_FILE, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(
             file,
             fieldnames=[
@@ -81,12 +81,12 @@ def save_to_csv(results):
             ]
         )
         writer.writeheader()
-        writer.writerows(results)
+        writer.writerows(measurement_rows)
 
     print(f"Saved results to: {os.path.abspath(OUTPUT_FILE)}")
 
 
 if __name__ == "__main__":
     print("Starting batch rim measurement script...")
-    results = process_images()
-    save_to_csv(results)
+    rim_results = process_images()
+    save_to_csv(rim_results)

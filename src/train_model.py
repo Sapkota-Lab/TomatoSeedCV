@@ -1,59 +1,70 @@
+from __future__ import annotations
+
 import math
 import cv2
 import numpy as np
-    
+
+
+def seed_record_from_contour(contour, min_area_px: float = 20.0):
+    """Build one seed measurement record from a contour, if it is large enough."""
+    area_px = cv2.contourArea(contour)
+    if area_px < min_area_px:
+        return None
+
+    rect = cv2.minAreaRect(contour)
+    width_px, height_px = rect[1]
+    if width_px == 0 or height_px == 0:
+        return None
+
+    return {
+        "contour": contour,
+        "area_px": area_px,
+        "width_px": float(width_px),
+        "height_px": float(height_px),
+        "center": tuple(rect[0]),
+        "angle": float(rect[2]),
+    }
+
+
+def seed_records_from_contours(contours, min_area_px: float = 20.0):
+    """Build sorted seed records from contours."""
+    seeds = []
+    for contour in contours:
+        seed = seed_record_from_contour(contour, min_area_px)
+        if seed is not None:
+            seeds.append(seed)
+
+    seeds.sort(key=lambda s: s["area_px"], reverse=True)
+    return seeds
+
+
 def segment_seeds(image_bgr: np.ndarray, min_area_px: float = 20.0):
 
     # Step 1: Convert to grayscale
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-    
+
     # Step 2: Apply Gaussian blur to smooth texture and blend dark spots inside seeds
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
+
     # Step 3: Apply binary thresholding (Otsu's method for automatic threshold selection)
     # Regular BINARY threshold: foreground (seeds) = white (255), background = black (0)
     _, threshold_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
+
     # Step 3.5: Apply morphological operations to remove noise
     # Opening removes small white noise in the background
     kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     threshold_mask = cv2.morphologyEx(threshold_mask, cv2.MORPH_OPEN, kernel_open, iterations=2)
-    
+
     # Closing fills small holes inside seeds
     kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     threshold_mask = cv2.morphologyEx(threshold_mask, cv2.MORPH_CLOSE, kernel_close, iterations=2)
-    
+
     # Step 4: Find external contours on the white seeds
     # Use CHAIN_APPROX_NONE for accurate perimeter measurement
     contours, _ = cv2.findContours(threshold_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    
-    seeds = []
-    for contour in contours:
-        # Step 5: Filter by area - only keep contours larger than min_area_px
-        area_px = cv2.contourArea(contour)
-        
-        # Only keep seeds larger than the minimum area threshold
-        if area_px < min_area_px:
-            continue
 
-        rect = cv2.minAreaRect(contour)
-        width_px, height_px = rect[1]
-        if width_px == 0 or height_px == 0:
-            continue
+    seeds = seed_records_from_contours(contours, min_area_px)
 
-        seeds.append(
-            {
-                "contour": contour,
-                "area_px": area_px,
-                "width_px": float(width_px),
-                "height_px": float(height_px),
-                "center": tuple(rect[0]),
-                "angle": float(rect[2]),
-            }
-        )
-
-    seeds.sort(key=lambda s: s["area_px"], reverse=True)
-    
     # Return inverted mask (black seeds on white background) for display
     display_mask = cv2.bitwise_not(threshold_mask)
     return display_mask, seeds
@@ -101,7 +112,7 @@ def summarize_seeds(seeds, mm_per_pixel: float | None):
 
     return summary
 
-def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
+def annotate(image_bgr: np.ndarray, seed_metrics):
     annotated = image_bgr.copy()
     color = (0, 180, 255)
 
@@ -109,7 +120,7 @@ def annotate(image_bgr: np.ndarray, seed_metrics, mm_per_pixel: float | None):
         contour = seed["contour"]
         cv2.drawContours(annotated, [contour], -1, color, 1)
 
-        x, y, w, h = cv2.boundingRect(contour)
+        x, y, _, _ = cv2.boundingRect(contour)
 
         # Show ID and area (prefer calibrated mm^2 when available)
         if seed.get("area_mm2") is not None:

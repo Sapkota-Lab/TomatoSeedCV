@@ -3,15 +3,14 @@ from pathlib import Path
 
 import cv2
 
-from detect_ruler import extract_ruler_calibration
 from train_model import segment_seeds, summarize_seeds, annotate, describe
 
 
 def main():
     """
     Main pipeline to segment seeds, measure their sizes, and generate outputs.
-    
-    TODO: 
+
+    TODO:
     - Run with test image to verify brown seed segmentation works
     - Calibrate mm_per_pixel using a known reference object or ruler
     - Adjust --mm-per-pixel argument once calibration is complete
@@ -66,7 +65,7 @@ def main():
     overlay_path = output_dir / f"{image_path.stem}_overlay.jpg"
 
     cv2.imwrite(str(mask_path), mask)
-    cv2.imwrite(str(overlay_path), annotate(image, summary, mm_per_pixel))
+    cv2.imwrite(str(overlay_path), annotate(image, summary))
 
     describe(summary)
     print(f"Saved mask to {mask_path}")
