@@ -14,8 +14,8 @@ from shiny import App, render, ui, reactive
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.train_model import segment_seeds, summarize_seeds, annotate, describe
 from src.roboflow_rimdetect import run_rim_detection, summarize_rim
+from src.whole_seed_roboflow import run_whole_seed_detection
 
 
 
@@ -25,6 +25,9 @@ def cv2_to_base64(image):
     _, buffer = cv2.imencode('.png', image)
     img_str = base64.b64encode(buffer).decode()
     return f"data:image/png;base64,{img_str}"
+
+
+IMAGE_STYLE = "max-width: 900px; width: 100%; height: auto; display: block; margin: 0 auto;"
 
 
 app_ui = ui.page_fluid(
@@ -138,31 +141,31 @@ def server(input, output, session):
         min_area_mm2 = input.min_area_mm2()
         max_area_mm2 = input.max_area_mm2()
         
-        # Process the image based on seed type
-        if seed_type == "whole":
-    # Run the existing full-seed pipeline
-            mask, seeds = segment_seeds(image, min_area_px=min_area_px)
-            summary = summarize_seeds(seeds, mm_per_pixel=mm_per_pixel)
+        try:
+            # Process the image based on seed type
+            if seed_type == "whole":
+                whole_output = run_whole_seed_detection(
+                    file_path,
+                    min_area_px=min_area_px,
+                    mm_per_pixel=mm_per_pixel,
+                    min_area_mm2=min_area_mm2,
+                    max_area_mm2=max_area_mm2,
+                )
+                mask = whole_output["mask"]
+                overlay = whole_output["overlay"]
+                summary = whole_output["summary"]
+                diagnostics = whole_output.get("diagnostics")
 
-    # Apply optional area filters (mm²)
-            if mm_per_pixel and mm_per_pixel > 0:
-                filtered_summary = []
-                for seed in summary:
-                    if seed['area_mm2'] is not None:
-                        if min_area_mm2 <= seed['area_mm2'] <= max_area_mm2:
-                            filtered_summary.append(seed)
-                    else:
-                        filtered_summary.append(seed)
-                summary = filtered_summary
-
-            overlay = annotate(image, summary, mm_per_pixel)
-
-        elif seed_type == "bisected":
-            # Run the Roboflow rim pipeline
-            rim_output = run_rim_detection(file_path)
-            mask = rim_output["mask"]
-            overlay = rim_output["overlay"]
-            summary = summarize_rim(mask, mm_per_pixel)
+            elif seed_type == "bisected":
+                # Run the Roboflow rim pipeline
+                rim_output = run_rim_detection(file_path)
+                mask = rim_output["mask"]
+                overlay = rim_output["overlay"]
+                summary = summarize_rim(mask, mm_per_pixel)
+                diagnostics = None
+        except Exception as exc:
+            processed_data.set({"error": f"Processing failed: {exc}"})
+            return
         
         # Store results
         processed_data.set({
@@ -171,6 +174,7 @@ def server(input, output, session):
             "overlay": overlay,
             "summary": summary,
             "seed_type": seed_type,
+            "diagnostics": diagnostics,
             "error": None
         })
     @reactive.Effect
@@ -200,7 +204,7 @@ def server(input, output, session):
         
         img_base64 = cv2_to_base64(data["original"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />'        )
+            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'        )
     
     @output
     @render.ui
@@ -215,7 +219,7 @@ def server(input, output, session):
         
         img_base64 = cv2_to_base64(data["mask"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />'        )
+            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'        )
     
     @output
     @render.ui
@@ -230,7 +234,7 @@ def server(input, output, session):
         
         img_base64 = cv2_to_base64(data["overlay"])
         return ui.HTML(
-            f'<img src="{img_base64}" style="max-width: 300px; height: auto; display: block; margin: 0 auto;" />'        )
+            f'<img src="{img_base64}" style="{IMAGE_STYLE}" />'        )
     
     @output
     @render.ui
@@ -323,6 +327,22 @@ def server(input, output, session):
             return ui.HTML(stats_html)
         
         else:
+            diagnostics = data.get("diagnostics") or {}
+            diagnostic_note = ""
+            if diagnostics.get("area_filter_removed_all"):
+                diagnostic_note = (
+                    '<p style="font-size: 10px; color: #a60; font-weight: bold;">'
+                    'Area filters removed every Roboflow detection, so the app is showing '
+                    'the unfiltered whole-seed detections.'
+                    '</p>'
+                )
+            elif diagnostics and diagnostics.get("prediction_count") == 0:
+                diagnostic_note = (
+                    '<p style="font-size: 10px; color: #c00; font-weight: bold;">'
+                    'Roboflow returned 0 whole-seed predictions for this image.'
+                    '</p>'
+                )
+
             stats_html = """
             <style>
                 .stats-table {{ font-family: monospace; font-size: 11px; overflow-x: auto; }}
@@ -333,6 +353,7 @@ def server(input, output, session):
             </style>
             <div class="stats-table">
                 <p><strong>Per-seed statistics ({} seeds detected)</strong></p>
+                {}
                 <p style="font-size: 10px; color: #666;">Match the seed numbers on the overlay image to identify problematic detections.</p>
                 <table>
                     <tr style="background-color: #f0f0f0;">
@@ -346,7 +367,7 @@ def server(input, output, session):
                         <th>Compact</th>
                         <th>Round</th>
                     </tr>
-            """.format(len(summary), unit_area=area_unit, unit_size=size_unit)
+            """.format(len(summary), diagnostic_note, unit_area=area_unit, unit_size=size_unit)
         
             for idx, seed in enumerate(summary, start=1):
                 if has_calibration:
