@@ -33,7 +33,7 @@ except ImportError:  # Allows direct execution from inside src/
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(env_path, override=True)
 
-DEFAULT_MODEL_ID = "lab-seed-detection/12"
+DEFAULT_MODEL_ID = "lab-seed-detection/13"
 DEFAULT_API_URL = "https://outline.roboflow.com"
 DEFAULT_CONFIDENCE = 0.20
 DEFAULT_API_CONFIDENCE = 40
