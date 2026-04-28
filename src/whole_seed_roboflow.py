@@ -5,12 +5,6 @@ The app expects each seed pipeline to return an original image, binary mask,
 annotated overlay, and per-seed measurements. This module adapts the Roboflow
 instance-segmentation response into the same contour-based shape used by the
 local OpenCV pipeline in train_model.py.
-
-run it:
-cd "/Users/manoj/Pictures/Lab Seed Pics/LabGitHub/TomatoSeedCV"
-source .venv/bin/activate
-python -m shiny run --host 127.0.0.1 --port 8000 app.py
-
 """
 
 from __future__ import annotations
