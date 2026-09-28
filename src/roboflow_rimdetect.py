@@ -3,15 +3,24 @@ import os
 import cv2
 import numpy as np
 from dotenv import load_dotenv
-from inference_sdk import InferenceHTTPClient
+
+try:
+    from inference_sdk import InferenceHTTPClient
+except ImportError:  # e.g. Python 3.13, where inference-sdk isn't published yet
+    InferenceHTTPClient = None
 
 env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(env_path, override=True)  # Ensure we load the .env file
 
-CLIENT = InferenceHTTPClient(
-    api_url="https://serverless.roboflow.com",
-    api_key=os.getenv("ROBOFLOW_API_KEY")
+CLIENT = (
+    InferenceHTTPClient(
+        api_url="https://serverless.roboflow.com",
+        api_key=os.getenv("ROBOFLOW_API_KEY")
+    )
+    if InferenceHTTPClient is not None
+    else None
 )
+
 
 MODEL_ID = "seed-rim-detection/7"
 
